@@ -5,15 +5,13 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC721/IERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Royalty.sol";
 import "@openzeppelin/contracts/utils/introspection/IERC165.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/Pausable.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 interface ISPoint is IERC20 {
     function mint(address _to, uint _amount) external;
 }
 
-contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
+contract NFTMarketplace is ERC2981, Pausable  {
     enum MarketResponseCodes {
         SUCCESS,
         CONTRACT_DOES_NOT_HAVE_ALLOWANCE,
@@ -32,8 +30,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         SPH_TRANSFER_FAILED
     }
 
-    using SafeERC20 for IERC20;
-
+    //////////// EVENTS /////////////
     event ListNFT(
         address indexed token,
         uint indexed serialNumber,
@@ -67,12 +64,13 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         uint acceptedBidAmount
     );
 
-    uint public constant sPoint4Buy = 200;
-    uint public constant sPoint4List = 10;
-    uint public constant sPoint4Bid = 100;
+    uint public sPoint4Buy = 200;
+    uint public sPoint4List = 10;
+    uint public sPoint4Bid = 100;
 
     address public sPointAddress;
 
+    ///////// STRUCTURES ////////////
     struct Bid {
         address payable owner;
         uint amount;
@@ -91,6 +89,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         uint sphs;
     }
 
+    // Struct to hold NFT details
     struct NFT {
         address payable owner;
         uint price;
@@ -104,18 +103,24 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         address spender;
     }
 
+    ////////// VARIABLES ////////////
+
+    // Mapping to store bids for each buyer
     mapping(string => Bid[]) public tokenBids;
+    // Store bids maps for fast getting
     mapping(address => Bid[]) public receivedBids;
     mapping(address => Bid[]) public sentBids;
 
     mapping(address => mapping(string => BidIndexes)) public buyersBidsIndexes;
     mapping(address => BuyerTokens) public buyersTokens;
+    // Mapping from NFT to its details
+    // Key format: "EVM_TOKEN_ID/SERIAL_NUMBER"
     mapping(string => NFT) public nfts;
     address internal contractOwner;
 
     IERC20 public spheraTokenAddress;
-    address treasuryWalletAddress;
-    uint public taxFee = 25;
+    address public treasuryWalletAddress;
+    uint public taxFee = 250;
 
     modifier onlyContractOwner() {
         require(msg.sender == contractOwner, "Not the contract owner");
@@ -130,6 +135,8 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
 
     fallback() external payable {}
 
+    //////////// INTERNAL ///////////
+
     function removeBidInfo(string memory nftId, address _buyer) internal {
         address nftOwner = nfts[nftId].owner;
         require(
@@ -139,10 +146,12 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
 
         BidIndexes memory indexes = buyersBidsIndexes[_buyer][nftId];
 
+        // Iterate through each bid type (token, sent, received)
         for (uint8 bidType = 0; bidType < 3; bidType++) {
             Bid[] storage bidArray;
             uint bidIndex;
 
+            // Determine the bid array and index based on bid type
             if (bidType == 0) {
                 bidArray = tokenBids[nftId];
                 bidIndex = indexes.tokenIndex;
@@ -154,12 +163,15 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
                 bidIndex = indexes.receivedIndex;
             }
 
+            // Move the last element to the position of the element to be removed
             uint lastIndex = bidArray.length - 1;
             Bid memory bidToMove = bidArray[lastIndex];
             bidArray[bidIndex] = bidToMove;
 
+            // Remove the last element by reducing the length of the array
             bidArray.pop();
 
+            // Determine the bid array and index based on bid type
             if (bidType == 0) {
                 buyersBidsIndexes[bidToMove.owner][nftId].tokenIndex = bidIndex;
             } else if (bidType == 1) {
@@ -170,6 +182,9 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
             }
         }
 
+        /////// FINAL ///////
+
+        // Remove pointer for removed bid
         buyersBidsIndexes[_buyer][nftId].isSet = false;
     }
 
@@ -191,13 +206,14 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
             "Not enough user sphs on the contract!"
         );
 
-        IERC20(spheraTokenAddress).safeTransfer(recipient, amount);
+        IERC20(spheraTokenAddress).transfer(recipient, amount);
 
         if (sender != address(this)) {
             buyersTokens[sender].sphs -= amount;
         }
     }
 
+    // acceptedBuyer address(0) = return money to everybody
     function removeBids(
         string memory nftId,
         address moneyBackException
@@ -208,6 +224,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
             uint _index = uint(index);
             Bid memory bid = tokenBids[nftId][_index];
 
+            // return money from bid
             if (bid.owner != moneyBackException) {
                 sendSphs(bid.owner, bid.owner, bid.amount);
             }
@@ -308,6 +325,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         return pageBids;
     }
 
+    //////////// PUBLIC /////////////
     function registerSPointAddress(
         address _sPointAddress
     ) public onlyContractOwner {
@@ -381,11 +399,13 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         return tokenInfo;
     }
 
+    ////////// NFT OWNER ////////////
+
     function listNFT(
         address[] memory _tokens,
         uint[] memory _serialNumbers,
         uint[] memory _prices
-    ) external nonReentrant whenNotPaused returns (uint) {
+    ) external returns (uint) {
         require(
             _tokens.length > 0 &&
                 _serialNumbers.length > 0 &&
@@ -464,7 +484,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
     function unlistNFT(
         address _token,
         uint _serialNumber
-    ) external nonReentrant whenNotPaused returns (uint) {
+    ) external whenNotPaused returns (uint) {
         string memory nftId = formatNftId(_token, _serialNumber);
 
         NonFungibleTokenInfo memory tokenInfo = getNonFungibleTokenInfo(
@@ -495,7 +515,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         uint _serialNumber,
         address payable _buyer,
         uint _acceptedBidAmount
-    ) external nonReentrant whenNotPaused returns (uint) {
+    ) external whenNotPaused returns (uint) {
         string memory nftId = formatNftId(_token, _serialNumber);
 
         require(
@@ -530,13 +550,13 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         uint ownerRewardAmount = _acceptedBidAmount;
 
         if (taxFee > 0) {
-            uint taxAmount = ownerRewardAmount * uint(int(taxFee / 1000));
+            uint taxAmount = (ownerRewardAmount * taxFee) / 10000;
 
             require(
                 treasuryWalletAddress != address(0),
                 "Treasury wallet address not set up."
             );
-            IERC20(spheraTokenAddress).safeTransfer(
+            IERC20(spheraTokenAddress).transfer(
                 treasuryWalletAddress,
                 taxAmount
             );
@@ -546,7 +566,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         if (checkIfSupportsERC2981(_token)) {
             (address receiver, uint256 royaltyAmount) = ERC721Royalty(_token)
                 .royaltyInfo(_serialNumber, ownerRewardAmount);
-            IERC20(spheraTokenAddress).safeTransfer(receiver, royaltyAmount);
+            IERC20(spheraTokenAddress).transfer(receiver, royaltyAmount);
 
             ownerRewardAmount -= royaltyAmount;
         }
@@ -576,11 +596,12 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         return uint(MarketResponseCodes.SUCCESS);
     }
 
+    ///////////// BUYER /////////////
     function addBids(
         address[] memory _tokens,
         uint[] memory _serialNumbers,
         uint[] memory tokenAmounts
-    ) external nonReentrant whenNotPaused returns (uint[] memory) {
+    ) external whenNotPaused returns (uint[] memory) {
         require(
             _tokens.length == _serialNumbers.length &&
                 _tokens.length == tokenAmounts.length,
@@ -597,7 +618,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         address _token,
         uint _serialNumber,
         uint tokenAmount
-    ) public nonReentrant whenNotPaused returns (uint) {
+    ) public whenNotPaused returns (uint) {
         address payable _buyer = payable(msg.sender);
         string memory nftId = formatNftId(_token, _serialNumber);
 
@@ -612,7 +633,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
             nftInfo.owner == nfts[nftId].owner,
             "Nft owner has been changed. Invalid NFT listing."
         );
-        IERC20(spheraTokenAddress).safeTransferFrom(
+        IERC20(spheraTokenAddress).transferFrom(
             msg.sender,
             address(this),
             tokenAmount
@@ -650,6 +671,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
             return uint(MarketResponseCodes.SUCCESS);
         }
 
+        // add bid and save its index
         Bid memory bid = Bid({
             amount: tokenAmount,
             owner: _buyer,
@@ -689,7 +711,7 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         address _token,
         uint _serialNumber,
         address payable _buyer
-    ) external nonReentrant whenNotPaused returns (uint) {
+    ) external whenNotPaused returns (uint) {
         string memory nftId = formatNftId(_token, _serialNumber);
 
         require(
@@ -728,12 +750,14 @@ contract NFTMarketplace is ERC2981, ReentrancyGuard, Pausable {
         return IERC165(nftAddress).supportsInterface(interfaceId);
     }
 
-    function withdrawEther() external onlyContractOwner {
-        uint256 balance = address(this).balance;
-        require(balance > 0, "No Ether to withdraw");
-
-        (bool success, ) = payable(contractOwner).call{value: balance}("");
-        require(success, "Withdrawal failed");
+    function changePoints(
+        uint256 _sPoint4Buy,
+        uint256 _sPoint4List,
+        uint256 _sPoint4Bid
+    ) public onlyContractOwner {
+        sPoint4Buy = _sPoint4Buy;
+        sPoint4List = _sPoint4List;
+        sPoint4Bid = _sPoint4Bid;
     }
 
     function unpause() external onlyContractOwner {

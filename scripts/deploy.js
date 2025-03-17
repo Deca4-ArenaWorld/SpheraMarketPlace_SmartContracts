@@ -5,11 +5,11 @@ async function main() {
 
   // Deploy SpheraNFT
   const SpheraNFT = await hre.ethers.getContractFactory("SpheraNFTCollection");
-  const spheraNFT = await SpheraNFT.deploy("Sphera", "SP");
+  const spheraNFT = await SpheraNFT.deploy("Sphera", "SP", "Demo.uri","0x8E4F2f4Cf8300C1430Bdc9ac2e157ad60ffBE662", 250);
   await spheraNFT.waitForDeployment();
   console.log("SpheraNFT deployed to:", spheraNFT.target);
 
-  // Deploy SpheraMarketplace
+  // // Deploy SpheraMarketplace
   const SpheraMarketplace = await hre.ethers.getContractFactory("NFTMarketplace");
   const spheraMarketplace = await SpheraMarketplace.deploy();
   await spheraMarketplace.waitForDeployment();

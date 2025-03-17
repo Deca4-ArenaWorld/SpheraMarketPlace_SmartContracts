@@ -5,20 +5,28 @@ import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
 import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Burnable.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/common/ERC2981.sol";
 
 contract SpheraNFTCollection is
     ERC721,
+    ERC2981,
     ERC721URIStorage,
     ERC721Burnable,
     Ownable
 {
     uint256 public nextTokenId = 1;
+    string public baseURI;
 
-    constructor(string memory name, string memory symbol)
-        ERC721(name, symbol)
-        Ownable(msg.sender)
-    {}
+    constructor(
+        string memory name,
+        string memory symbol,
+        string memory _baseURI,
+        address royaltyReceiver,
+        uint96 feeNumerator
+    ) ERC721(name, symbol) Ownable(msg.sender) {
+        baseURI = _baseURI;
+        _setDefaultRoyalty(royaltyReceiver, feeNumerator);
+    }
 
     function safeMint(address to, string memory uri)
         public
@@ -89,10 +97,25 @@ contract SpheraNFTCollection is
         return super.tokenURI(tokenId);
     }
 
+    function setDefaultRoyalty(address receiver, uint96 feeNumerator)
+        public
+        onlyOwner
+    {
+        _setDefaultRoyalty(receiver, feeNumerator);
+    }
+
+    function setTokenRoyalty(
+        uint256 tokenId,
+        address receiver,
+        uint96 feeNumerator
+    ) public onlyOwner {
+        _setTokenRoyalty(tokenId, receiver, feeNumerator);
+    }
+
     function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(ERC721, ERC721URIStorage)
+        override(ERC721, ERC2981, ERC721URIStorage)
         returns (bool)
     {
         return super.supportsInterface(interfaceId);
